@@ -9,6 +9,8 @@ package node
 import (
 	"context"
 	"fmt"
+	"github.com/hyperledger/fabric/common/p2pmessage"
+	"github.com/hyperledger/fabric/internal/peer/protos"
 	"io"
 	"io/ioutil"
 	"net"
@@ -490,18 +492,32 @@ func serve(args []string) error {
 		}
 	}
 
-	metrics := deliver.NewMetrics(metricsProvider)
+	deliverMetrics := deliver.NewMetrics(metricsProvider)
 	abServer := &peer.DeliverServer{
 		DeliverHandler: deliver.NewHandler(
 			&peer.DeliverChainManager{Peer: peerInstance},
 			coreConfig.AuthenticationTimeWindow,
 			mutualTLS,
-			metrics,
+			deliverMetrics,
 			false,
 		),
 		PolicyCheckerProvider: policyCheckerProvider,
 	}
 	pb.RegisterDeliverServer(peerServer.Server(), abServer)
+
+	// Block & Txn Reconcile Implementation
+	p2pMessageMetrics := p2pmessage.NewMetrics(metricsProvider)
+	p2pMessageServer := &peer.P2pMessageServer{
+		DeliverHandler: p2pmessage.NewHandler(
+			&peer.P2PMessageChainManager{Peer: peerInstance},
+			coreConfig.AuthenticationTimeWindow,
+			mutualTLS,
+			p2pMessageMetrics,
+			false,
+		),
+		PolicyCheckerProvider: policyCheckerProvider,
+	}
+	protos.RegisterReconcileServiceServer(peerServer.Server(), p2pMessageServer)
 
 	// Create a self-signed CA for chaincode service
 	ca, err := tlsgen.NewCA()
